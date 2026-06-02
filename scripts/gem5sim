@@ -1,0 +1,298 @@
+#!/bin/bash
+# gem5sim — Convenient wrapper for running gem5 + NVMain simulations.
+#
+# Usage:
+#   gem5sim <benchmark> [options] [-- extra gem5 flags]
+#
+# Benchmarks (use the NAME, not a path):
+#   hello       gem5 built-in hello world
+#   quicksort   $WORK_DIR/data/benchmarks/quicksort
+#               (auto-compiled from quicksort.c if missing)
+#   multiply    $WORK_DIR/data/benchmarks/multiply
+#               (auto-compiled from multiply.c if missing)
+#
+# Options:
+#   --l3                    Enable L3 cache
+#   --assoc N               L3 associativity (integer, or "full")
+#                           Default L3 is 256kB, so "full" = 256kB/64B = 4096 ways.
+#   --repl POLICY           L3 replacement policy: LRU (default), FBR, or WBA
+#                           WBA = Bonus writeback-aware (clean-preferring) LRU
+#   --decay N               FBR decay-epoch length in accesses (default 100000)
+#   --wt                    Use write-through policy (default is write-back)
+#   --save NAME             Save log + stats to $WORK_DIR/data/NAME/
+#                           (no --save = just print to terminal)
+#   -h, --help              Show this help
+#
+# Anything after `--` is passed directly to gem5.
+#
+# Quick demos:
+#   gem5sim hello                                  # quick hello world (no L3)
+#   gem5sim hello --l3                             # hello with L3 enabled
+#   gem5sim hello --l3 -- --maxinsts=1000          # pass extra flags to gem5
+#
+# Per-question submission commands:
+#
+#   Q1 — Build-up + Hello World (no L3)
+#     gem5sim hello --save Q1
+#
+#   Q2 — Enable L3 (hello world with --l3)
+#     gem5sim hello --l3 --save Q2
+#
+#   Q3 — Quicksort, L3 2-way vs full-way
+#     gem5sim quicksort --l3 --assoc 2    --save Q3/2way
+#     gem5sim quicksort --l3 --assoc full --save Q3/fullway
+#
+#   Q4 — FBR vs LRU replacement (quicksort)
+#     gem5sim quicksort --l3 --repl LRU --save Q4/LRU
+#     gem5sim quicksort --l3 --repl FBR --save Q4/FBR
+#
+#   Q5 — Multiply, write-back vs write-through (4-way)
+#     gem5sim multiply --l3 --assoc 4       --save Q5/writeback
+#     gem5sim multiply --l3 --assoc 4 --wt  --save Q5/writethrough
+#
+#   Bonus — Quicksort, writeback-aware LLC policy vs LRU (lower PCM energy)
+#     gem5sim quicksort --l3 --repl LRU --save Bonus/LRU_baseline
+#     gem5sim quicksort --l3 --repl WBA --save Bonus/modified
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+find_work_dir() {
+    local dir="$SCRIPT_DIR"
+    while [[ "$dir" != "/" ]]; do
+        # answer/gem5 is a source overlay, not a complete gem5 tree. Require a
+        # file from the full tree so the packaged wrapper keeps walking up to
+        # the project root when invoked from answer/scripts.
+        if [[ -f "$dir/gem5/configs/example/se.py" ]] ||
+           [[ -f "$dir/quicksort.c" ]] ||
+           [[ -f "$dir/multiply.c" ]]; then
+            printf '%s\n' "$dir"
+            return
+        fi
+        dir="$(dirname "$dir")"
+    done
+    pwd
+}
+
+# === Defaults (override via env) ===
+: "${WORK_DIR:=$(find_work_dir)}"
+if [[ -d "$WORK_DIR/gem5" ]]; then
+    DEFAULT_GEM5_DIR="$WORK_DIR/gem5"
+else
+    DEFAULT_GEM5_DIR="/root/gem5"
+fi
+if [[ -f "$WORK_DIR/NVmain/Config/PCM_ISSCC_2012_4GB.config" ]]; then
+    DEFAULT_NVMAIN_CONFIG="$WORK_DIR/NVmain/Config/PCM_ISSCC_2012_4GB.config"
+else
+    DEFAULT_NVMAIN_CONFIG="/root/NVmain/Config/PCM_ISSCC_2012_4GB.config"
+fi
+: "${GEM5_DIR:=$DEFAULT_GEM5_DIR}"
+: "${GEM5_BIN:=build/X86/gem5.opt}"
+: "${GEM5_CONFIG:=configs/example/se.py}"
+: "${NVMAIN_CONFIG:=$DEFAULT_NVMAIN_CONFIG}"
+: "${CPU_TYPE:=TimingSimpleCPU}"
+: "${ANSWER_DIR:=$WORK_DIR/data}"
+: "${BENCHMARK_DIR:=$WORK_DIR/data/benchmarks}"
+: "${L3_SIZE_BYTES:=262144}"     # 256kB default, matches Options.py (--assoc full = 256kB/64B = 4096)
+: "${CACHE_LINE_BYTES:=64}"
+
+# === Help ===
+show_help() {
+    sed -n '2,/^set -e/p' "$0" | sed 's/^# \?//;/^set -e/d' | head -n -1
+}
+
+[[ $# -eq 0 || "$1" == "-h" || "$1" == "--help" ]] && { show_help; exit 0; }
+
+# === Parse benchmark name ===
+BENCH_NAME="$1"; shift
+
+case "$BENCH_NAME" in
+    hello)
+        BENCH_PATH="tests/test-progs/hello/bin/x86/linux/hello"
+        ;;
+    quicksort|multiply)
+        mkdir -p "$BENCHMARK_DIR"
+        BENCH_PATH="$BENCHMARK_DIR/$BENCH_NAME"
+        BENCH_SOURCE="$BENCHMARK_DIR/$BENCH_NAME.c"
+        if [[ ! -f "$BENCH_SOURCE" ]]; then
+            for source_dir in \
+                "$WORK_DIR" \
+                "$SCRIPT_DIR/../benchmarks" \
+                "$SCRIPT_DIR/../data/benchmarks" \
+                "$SCRIPT_DIR/../../data/benchmarks" \
+                "$SCRIPT_DIR/../answer/data/benchmarks"; do
+                if [[ -f "$source_dir/$BENCH_NAME.c" ]]; then
+                    BENCH_SOURCE="$source_dir/$BENCH_NAME.c"
+                    break
+                fi
+            done
+        fi
+        # Auto-compile if binary is missing but source exists
+        if [[ ! -x "$BENCH_PATH" ]] && [[ -f "$BENCH_SOURCE" ]]; then
+            echo "→ Compiling $BENCH_SOURCE (one time setup)..."
+            gcc -static -O0 "$BENCH_SOURCE" -o "$BENCH_PATH"
+            echo "  Done: $BENCH_PATH"
+            echo ""
+        fi
+        if [[ ! -x "$BENCH_PATH" ]]; then
+            echo "ERROR: benchmark not found and no source to compile: $BENCH_PATH" >&2
+            exit 1
+        fi
+        ;;
+    *)
+        echo "ERROR: unknown benchmark '$BENCH_NAME'" >&2
+        echo "Valid: hello | quicksort | multiply" >&2
+        echo "Try: $0 --help" >&2
+        exit 1
+        ;;
+esac
+
+# === Parse options ===
+L3=""
+ASSOC_VALUE=""
+ASSOC=""
+L3SIZE=""
+REPL=""
+DECAY=""
+WT=""
+SAVE_NAME=""
+EXTRA_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --l3)       L3="--l3cache"; shift ;;
+        --wt)       WT="--write_through"; shift ;;
+        --assoc)    ASSOC_VALUE="$2"; shift 2 ;;
+        --l3size)   L3SIZE="--l3_size=$2"; shift 2 ;;
+        --repl)     REPL="--l3_repl=$2"; shift 2 ;;
+        --decay)    DECAY="--l3_decay_period=$2"; shift 2 ;;
+        --save)     SAVE_NAME="$2"; shift 2 ;;
+        --)         shift; EXTRA_ARGS=("$@"); break ;;
+        -h|--help)  show_help; exit 0 ;;
+        *)          EXTRA_ARGS+=("$1"); shift ;;
+    esac
+done
+
+if [[ -n "$REPL" ]]; then
+    case "${REPL#--l3_repl=}" in
+        LRU|FBR|WBA) ;;
+        *)
+            echo "ERROR: unsupported L3 replacement policy '${REPL#--l3_repl=}'" >&2
+            echo "Valid: LRU | FBR | WBA" >&2
+            exit 1
+            ;;
+    esac
+fi
+
+size_to_bytes() {
+    local size="$1"
+    local number unit
+    number="$(printf '%s' "$size" | sed -E 's/^([0-9]+).*/\1/')"
+    unit="$(printf '%s' "$size" | sed -E 's/^[0-9]+//')"
+    case "$unit" in
+        B|"")  echo "$number" ;;
+        kB|KB) echo $((number * 1024)) ;;
+        MB)    echo $((number * 1024 * 1024)) ;;
+        GB)    echo $((number * 1024 * 1024 * 1024)) ;;
+        *)     echo "ERROR: unsupported L3 size '$size' (use B, kB, MB, or GB)" >&2; exit 1 ;;
+    esac
+}
+
+if [[ -n "$ASSOC_VALUE" ]]; then
+    if [[ "$ASSOC_VALUE" == "full" ]]; then
+        l3_bytes="$L3_SIZE_BYTES"
+        if [[ -n "$L3SIZE" ]]; then
+            l3_bytes="$(size_to_bytes "${L3SIZE#--l3_size=}")"
+        fi
+        ASSOC="--l3_assoc=$((l3_bytes / CACHE_LINE_BYTES))"
+    else
+        ASSOC="--l3_assoc=$ASSOC_VALUE"
+    fi
+fi
+
+# Auto-warn if L3-specific flags are used without --l3 (they would be ignored)
+if [[ -z "$L3" ]]; then
+    for pair in "ASSOC:--assoc" "L3SIZE:--l3size" "REPL:--repl" "DECAY:--decay"; do
+        var="${pair%%:*}"; flag="${pair##*:}"
+        if [[ -n "${!var}" ]]; then
+            echo "WARNING: $flag has no effect without --l3 (ignoring)" >&2
+            printf -v "$var" '%s' ""
+        fi
+    done
+fi
+
+# === Resolve output paths ===
+if [[ -n "$SAVE_NAME" ]]; then
+    OUTDIR="$ANSWER_DIR/$SAVE_NAME"
+    mkdir -p "$OUTDIR"
+    LOG="$OUTDIR/output.log"
+    STATS="$OUTDIR/stats.txt"
+fi
+
+# === Sanity check ===
+if [[ ! -x "$GEM5_DIR/$GEM5_BIN" ]]; then
+    echo "ERROR: gem5 binary not found at $GEM5_DIR/$GEM5_BIN" >&2
+    exit 1
+fi
+
+# === Compose command ===
+cd "$GEM5_DIR"
+
+if [[ -n "$SAVE_NAME" ]]; then
+    CMD=("./$GEM5_BIN" -d "$OUTDIR" "$GEM5_CONFIG"
+         -c "$BENCH_PATH"
+         "--cpu-type=$CPU_TYPE"
+         --caches --l2cache)
+else
+    CMD=("./$GEM5_BIN" "$GEM5_CONFIG"
+         -c "$BENCH_PATH"
+         "--cpu-type=$CPU_TYPE"
+         --caches --l2cache)
+fi
+[[ -n "$L3" ]]     && CMD+=("$L3")
+[[ -n "$ASSOC" ]]  && CMD+=("$ASSOC")
+[[ -n "$L3SIZE" ]] && CMD+=("$L3SIZE")
+[[ -n "$REPL" ]]   && CMD+=("$REPL")
+[[ -n "$DECAY" ]]  && CMD+=("$DECAY")
+[[ -n "$WT" ]]     && CMD+=("$WT")
+CMD+=(--mem-type=NVMainMemory
+      "--nvmain-config=$NVMAIN_CONFIG"
+      "${EXTRA_ARGS[@]}")
+
+# === Print run summary ===
+echo "================================================================"
+echo " benchmark : $BENCH_NAME ($BENCH_PATH)"
+echo " L3        : ${L3:-disabled}"
+echo " assoc     : ${ASSOC:-default}"
+echo " l3 size   : ${L3SIZE:-default}"
+echo " repl      : ${REPL:-default (LRU)}"
+echo " policy    : ${WT:-write-back (default)}"
+[[ -n "$DECAY" ]] && echo " decay     : $DECAY"
+if [[ -n "$SAVE_NAME" ]]; then
+    echo " save to   : $OUTDIR"
+fi
+[[ ${#EXTRA_ARGS[@]} -gt 0 ]] && echo " extra     : ${EXTRA_ARGS[*]}"
+echo "================================================================"
+echo ""
+
+# === Run ===
+if [[ -n "$SAVE_NAME" ]]; then
+    "${CMD[@]}" 2>&1 | tee "$LOG"
+    PIPE_STATUS="${PIPESTATUS[0]}"
+    # gem5 writes config.ini/config.json into every -d outdir. They are useful
+    # for debugging but noisy for submission folders; keep only log + stats.
+    rm -f "$OUTDIR/config.ini" "$OUTDIR/config.json"
+    if [[ -f "$STATS" ]]; then
+        echo ""
+        echo "================================================================"
+        echo " ✓ saved: $LOG"
+        echo " ✓ saved: $STATS"
+        echo "================================================================"
+    else
+        echo "WARNING: $STATS not found" >&2
+    fi
+    exit "$PIPE_STATUS"
+else
+    exec "${CMD[@]}"
+fi
