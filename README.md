@@ -107,7 +107,24 @@ source env.sh
 ./run_all.sh
 ```
 
-**C. You already have your own full gem5 tree** and just want our changes —
+**C. Transfer a pre-built `_work/` from another machine** (skips the 30-90 min
+build entirely — useful when moving to a laptop):
+
+```bash
+# On the machine that already ran setup.sh:
+scp -r /path/to/repo/_work  user@laptop:/path/to/cloned/repo/
+
+# On the laptop (after clone + scp):
+source env.sh
+./run_all.sh        # works immediately, no build needed
+```
+
+The `_work/` directory is git-ignored and never committed; each machine either
+runs `setup.sh` once or copies a pre-built tree.
+
+---
+
+**D. You already have your own full gem5 tree** and just want our changes —
 apply the overlay onto it and rebuild:
 
 ```bash
