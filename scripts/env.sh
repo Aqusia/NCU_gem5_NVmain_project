@@ -4,7 +4,7 @@
 #
 # This is the default template. setup.sh rewrites it after a successful build;
 # you can also edit it by hand to point at a gem5 tree somewhere else.
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export GEM5_DIR="$HERE/_work/gem5"
 export NVMAIN_CONFIG="$HERE/_work/NVmain/Config/PCM_ISSCC_2012_4GB.config"
 export BENCHMARK_DIR="$HERE/data/benchmarks"

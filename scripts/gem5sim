@@ -63,10 +63,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 find_work_dir() {
     local dir="$SCRIPT_DIR"
     while [[ "$dir" != "/" ]]; do
-        # The repo root always has setup.sh (and run_all.sh). Use that as the
-        # anchor so the walker doesn't overshoot into a parent workspace that
-        # happens to contain a full gem5 tree.
-        if [[ -f "$dir/setup.sh" ]]; then
+        # The repo root always has Containerfile. Use that as the anchor so
+        # the walker doesn't overshoot into a parent workspace that happens
+        # to contain a full gem5 tree.
+        if [[ -f "$dir/Containerfile" ]]; then
             printf '%s\n' "$dir"
             return
         fi

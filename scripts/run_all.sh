@@ -6,10 +6,10 @@
 # output.log + stats.txt, matching the layout already committed in data/.
 
 set -euo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Make sure the wrapper can find the built gem5 tree.
-[[ -n "${GEM5_DIR:-}" ]] || source "$HERE/env.sh"
+[[ -n "${GEM5_DIR:-}" ]] || source "$HERE/scripts/env.sh"
 
 GS="$HERE/scripts/gem5sim"
 [[ -x "$GS" ]] || chmod +x "$GS" 2>/dev/null || true
