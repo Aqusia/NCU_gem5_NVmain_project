@@ -22,7 +22,7 @@ non-volatile-memory (PCM) model. Five questions:
 
 ```
 .
-├── README.md          # this file — setup + command tutorial
+├── README.md           # this file — setup + command tutorial
 ├── Containerfile       # Podman/Docker image with the gem5 toolchain
 ├── .gitignore
 ├── scripts/
@@ -43,120 +43,98 @@ checkout. `scripts/setup.sh` does exactly that for you.
 
 ---
 
-## Environment requirements
+## Complete build and run guide
 
-gem5 at the pinned commit (`525ce650…`, ~2019) has specific needs:
-
-- **Python 2.7** — gem5's SCons build runs under, and embeds, Python 2.7.
-  **Python 3 will not build it.** This is the single most common setup failure.
-- **SCons**, **g++ / build-essential**, `m4`, `zlib`, `protobuf`, `libgoogle-perftools`.
-- **Linux x86-64** (the binary is built for the X86 ISA).
-- Benchmarks are compiled with `gcc -static -O0`:
-  - `-static` — gem5's syscall-emulation (SE) mode has limited dynamic-linker support.
-  - `-O0` — keeps the compiler from optimizing away the quicksort/multiply loops.
-
-Because Python 2.7 is awkward on modern distros, the **recommended path is the
-Podman container** below, which pins a known-good Ubuntu 18.04 toolchain.
-
----
-
-## Quick start — Podman (recommended)
-
-Works the same with Docker (swap `podman` → `docker`).
+### Step 1 — Clone the repo
 
 ```bash
-# 1. Build the toolchain image (fast — just installs compilers/SCons/Python 2.7)
-podman build -t cofinal .
+git clone https://github.com/Aqusia/NCU_gem5_NVmain_project.git
+cd NCU_gem5_NVmain_project
+```
 
-# 2. Start a long-running container with this repo mounted at /root/COFINAL
-#    (run once; use `podman exec` afterwards to re-enter)
+### Step 2 — Build the container image
+
+```bash
+podman build -t cofinal .
+```
+
+This installs the Ubuntu 18.04 toolchain (Python 2.7, SCons, g++, etc.).
+Takes ~1–2 minutes. Only needs to be done once.
+
+### Step 3 — Start the container
+
+```bash
 podman run -d --name cofinal \
   -v "$PWD":/root/COFINAL \
-  -v /path/to/gem5:/root/gem5 \
-  -v /path/to/NVmain:/root/NVmain \
   cofinal sleep infinity
+```
 
-# 3. Enter the container
-#    Note: if your shell's cwd is outside the container mounts, cd ~ first:
+`-v "$PWD":/root/COFINAL` mounts the repo into the container so `_work/`
+(the built gem5) and `data/` results land back on your host automatically.
+
+### Step 4 — Enter the container
+
+> **Important:** Always `cd ~` before `podman exec` to avoid the
+> `error getting current working directory` error (happens when your shell's
+> cwd is a path the container can't see).
+
+```bash
 cd ~ && podman exec -it -w /root/COFINAL cofinal bash
+```
 
-# --- inside the container ---------------------------------------------------
-# 4. One-time: clone gem5@commit + NVMain, apply the overlay, build gem5.
-#    The gem5 compile takes ~30-90 min the first time. Output goes to ./_work,
-#    which is on the host mount, so it persists and is reused next time.
+### Step 5 — Fix PATH (one-time, inside container)
+
+```bash
+echo 'export PATH=/root/COFINAL/scripts:$PATH' >> ~/.bashrc
+source ~/.bashrc
+```
+
+This makes `gem5sim` resolve to the repo's `scripts/gem5sim` and saves all
+results to `data/` inside the repo.
+
+### Step 6 — Build gem5 + NVMain (one-time, ~30–90 min)
+
+```bash
 scripts/setup.sh
-
-# 5. Point the wrapper at the freshly built tree
-source scripts/env.sh
-
-# 6. Reproduce everything, or run a single question
-scripts/run_all.sh
-gem5sim quicksort --l3 --assoc 2 --save Q3/2way
-# ----------------------------------------------------------------------------
 ```
 
-`-v "$PWD":/root/COFINAL` mounts the repo into the container, so `_work/` (the
-built gem5) and any new `data/` results land back on your host automatically.
+This will:
+1. Clone gem5 at pinned commit `525ce650` → `_work/gem5/`
+2. Clone NVMain → `_work/NVmain/`
+3. Apply the overlay from `gem5/` onto the full gem5 tree
+4. Build `_work/gem5/build/X86/gem5.opt` with SCons
+5. Write `scripts/env.sh` with the correct paths
 
-> **Re-entering the container** after it's already running:
-> ```bash
-> cd ~ && podman exec -it -w /root/COFINAL cofinal bash
-> ```
-> The `cd ~` avoids the `error getting current working directory` error that
-> occurs when your shell's cwd is a path the container can't see.
-
-> Fully-baked image (optional): if you'd rather have gem5 pre-compiled *inside*
-> the image instead of via `setup.sh`, add `COPY . /work`, `RUN /work/scripts/setup.sh`
-> to the `Containerfile`. The image becomes multi-GB and the build takes the full
-> 30-90 min, but then no setup step is needed at run time. The default keeps the
-> image small and does the heavy build once on the mounted volume.
-
----
-
-## Alternative paths (no container)
-
-**B. You already have the Python 2.7 / SCons / g++ toolchain locally:**
+### Step 7 — Run simulations
 
 ```bash
-scripts/setup.sh        # clone + overlay + build into ./_work
+# Set environment (or skip if PATH was fixed in step 5)
 source scripts/env.sh
+
+# Run a single question
+gem5sim hello --save Q1
+
+# Or reproduce everything at once
 scripts/run_all.sh
 ```
 
-**C. Transfer a pre-built `_work/` from another machine** (skips the 30-90 min
-build entirely — useful when moving to a laptop):
-
-```bash
-# On the machine that already ran scripts/setup.sh:
-scp -r /path/to/repo/_work  user@laptop:/path/to/cloned/repo/
-
-# On the laptop (after clone + scp):
-source scripts/env.sh
-scripts/run_all.sh        # works immediately, no build needed
-```
-
-The `_work/` directory is git-ignored and never committed; each machine either
-runs `scripts/setup.sh` once or copies a pre-built tree.
-
 ---
 
-**D. You already have your own full gem5 tree** and just want our changes —
-apply the overlay onto it and rebuild:
+## Re-entering the container later
+
+The container keeps running in the background. To come back:
 
 ```bash
-cp -r gem5/configs gem5/src /path/to/your/gem5/
-cd /path/to/your/gem5
-scons EXTRAS=../NVmain build/X86/gem5.opt -j"$(nproc)"
+cd ~ && podman exec -it -w /root/COFINAL cofinal bash
+# PATH is already set from ~/.bashrc — gem5sim works immediately
 ```
-
-Then run gem5sim against it by overriding the paths (see below).
 
 ---
 
 ## Running simulations — `scripts/gem5sim`
 
 `gem5sim` wraps the long gem5 command line behind named benchmarks and friendly
-flags. After `source scripts/env.sh`, just call `gem5sim …`.
+flags. After step 5, just call `gem5sim …` from anywhere inside the container.
 
 ```
 gem5sim <benchmark> [options] [-- extra gem5 flags]
@@ -167,34 +145,51 @@ Benchmarks:   hello | quicksort | multiply
 Options:
   --l3            enable the L3 cache
   --assoc N       L3 associativity (an integer, or "full" = 256kB/64B = 4096 ways)
-  --repl POLICY   L3 replacement policy: LRU (default) or FBR
+  --repl POLICY   L3 replacement policy: LRU (default), FBR, or WBA
   --decay N       FBR decay-epoch length, in accesses (default 100000)
   --wt            use write-through (default is write-back)
   --save NAME     save output.log + stats.txt to data/NAME/  (omit = print only)
   -h, --help      full help
 ```
 
-Per-question commands (this is exactly what `run_all.sh` runs):
+Per-question commands (exactly what `scripts/run_all.sh` runs):
 
 ```bash
-gem5sim hello --save Q1                              # Q1 baseline
-gem5sim hello --l3 --save Q2                         # Q2 L3 enabled
-gem5sim quicksort --l3 --assoc 2    --save Q3/2way   # Q3 set-associative
-gem5sim quicksort --l3 --assoc full --save Q3/fullway# Q3 fully-associative
-gem5sim quicksort --l3 --repl LRU --save Q4/LRU      # Q4 baseline
-gem5sim quicksort --l3 --repl FBR --save Q4/FBR      # Q4 frequency-based + aging
-gem5sim multiply --l3 --assoc 4      --save Q5/writeback    # Q5 write-back
-gem5sim multiply --l3 --assoc 4 --wt --save Q5/writethrough # Q5 write-through
-gem5sim quicksort --l3 --repl LRU --save Bonus/quicksort/LRU_baseline   # Bonus baseline
-gem5sim quicksort --l3 --repl WBA --save Bonus/quicksort/WBA_modified   # Bonus WBA
-gem5sim multiply  --l3 --repl LRU --save Bonus/multiply/LRU_baseline    # Bonus baseline
-gem5sim multiply  --l3 --repl WBA --save Bonus/multiply/WBA_modified    # Bonus WBA
+gem5sim hello --save Q1                                        # Q1 baseline
+gem5sim hello --l3 --save Q2                                   # Q2 L3 enabled
+gem5sim quicksort --l3 --assoc 2    --save Q3/2way             # Q3 set-associative
+gem5sim quicksort --l3 --assoc full --save Q3/fullway          # Q3 fully-associative
+gem5sim quicksort --l3 --repl LRU   --save Q4/LRU              # Q4 baseline
+gem5sim quicksort --l3 --repl FBR   --save Q4/FBR              # Q4 FBR w/ aging
+gem5sim multiply  --l3 --assoc 4         --save Q5/writeback   # Q5 write-back
+gem5sim multiply  --l3 --assoc 4 --wt    --save Q5/writethrough# Q5 write-through
+gem5sim quicksort --l3 --repl LRU --save Bonus/quicksort/LRU_baseline
+gem5sim quicksort --l3 --repl WBA --save Bonus/quicksort/WBA_modified
+gem5sim multiply  --l3 --repl LRU --save Bonus/multiply/LRU_baseline
+gem5sim multiply  --l3 --repl WBA --save Bonus/multiply/WBA_modified
 ```
 
-### Path overrides (env vars)
+---
 
-`gem5sim` reads these; `env.sh` sets them for the `./_work` build. Override them
-to point at a gem5 tree elsewhere (e.g. path **C** above):
+## Alternative: transfer pre-built `_work/` (skip the build)
+
+If you already have a machine that ran `scripts/setup.sh`, copy `_work/` to
+skip the 30–90 min build on a new machine:
+
+```bash
+# On the source machine:
+scp -r /path/to/repo/_work  user@newmachine:/path/to/cloned/repo/
+
+# On the new machine (after clone + scp):
+# Start container (step 3), enter (step 4), fix PATH (step 5), then:
+gem5sim hello --save Q1   # works immediately, no build needed
+```
+
+---
+
+## Path overrides (env vars)
+
+`gem5sim` reads these; `scripts/env.sh` sets them for the `_work/` build.
 
 | Variable | Meaning | Default after `source scripts/env.sh` |
 |---|---|---|
@@ -202,12 +197,6 @@ to point at a gem5 tree elsewhere (e.g. path **C** above):
 | `NVMAIN_CONFIG` | PCM config file | `./_work/NVmain/Config/PCM_ISSCC_2012_4GB.config` |
 | `BENCHMARK_DIR` | where benchmark `.c` / binaries live | `./data/benchmarks` |
 | `ANSWER_DIR` | where `--save NAME` writes | `./data` |
-
-```bash
-# Example: run against a gem5 you built somewhere else
-GEM5_DIR=/opt/gem5 NVMAIN_CONFIG=/opt/NVmain/Config/PCM_ISSCC_2012_4GB.config \
-  gem5sim quicksort --l3 --assoc 2
-```
 
 ---
 
@@ -228,29 +217,34 @@ and evictions** — that is what makes the Q3/Q4 experiments meaningful.
 
 ## Troubleshooting
 
-- **`L3 hits = 0` / 2-way == full-way:** the working set fits inside L2, so L3 is
-  never exercised. Check that **L2 < L3 < working set**. (Early on, L2 and L3 were
-  both 2 MB and the 100 k quicksort fit in L2 → L3 was dead.)
-- **`SyntaxError: Non-ASCII character` while building:** a gem5 `.py` file has a
-  non-ASCII (e.g. Chinese) comment. Python 2 forbids that unless the file starts
-  with `# -*- coding: utf-8 -*-`. Keep overlay comments ASCII.
-- **SCons / build errors about print statements or `python3`:** you're building
-  under Python 3. Use Python 2.7 (the container guarantees this).
-- **`--save` seems ignored:** it must come **before** any `--`. Everything after
-  `--` is passed straight to gem5, so `--save` placed there is treated as a gem5
-  flag and never triggers saving.
+- **`podman exec` → `error getting current working directory`:** your shell's
+  cwd is outside the container mounts. Fix:
+  ```bash
+  cd ~ && podman exec -it -w /root/COFINAL cofinal bash
+  ```
+
+- **`gem5sim` saves to wrong directory:** PATH is pointing at old scripts.
+  Run step 5 (fix PATH) again:
+  ```bash
+  echo 'export PATH=/root/COFINAL/scripts:$PATH' >> ~/.bashrc && source ~/.bashrc
+  which gem5sim   # should show /root/COFINAL/scripts/gem5sim
+  ```
+
+- **`L3 hits = 0` / 2-way == full-way:** the working set fits inside L2, so L3
+  is never exercised. Check that **L2 < L3 < working set**.
+
+- **`SyntaxError: Non-ASCII character` while building:** a gem5 `.py` file has
+  a non-ASCII comment. Python 2 forbids that unless the file starts with
+  `# -*- coding: utf-8 -*-`. Keep overlay comments ASCII.
+
+- **SCons / build errors about `python3`:** you're building under Python 3.
+  Use the container (Python 2.7 guaranteed).
+
+- **`--save` seems ignored:** it must come **before** `--`. Everything after
+  `--` is passed straight to gem5.
+
 - **NVMain energy numbers missing from `stats.txt`:** they only appear in the
   terminal log. That's why every run keeps both `output.log` and `stats.txt`.
-- **`podman exec` → `error getting current working directory`:** happens when
-  your shell's cwd is outside the container's mount points (e.g. you're sitting
-  in a directory the container can't see). Fix: `cd` to any valid path first:
-  ```bash
-  cd ~ && podman exec -it -w /root/work/answer cofinal bash
-  ```
-- **`source scripts/env.sh` → `No such file or directory`:** same cause — you're
-  on the host in a directory outside the container mount. Either enter the
-  container first (see above), or `cd` to the repo root on a mounted path before
-  sourcing.
 
 ---
 
@@ -258,8 +252,8 @@ and evictions** — that is what makes the Q3/Q4 experiments meaningful.
 
 - `data/<Q>/` keeps only `output.log` + `stats.txt`; `gem5sim` deletes gem5's
   `config.ini` / `config.json` from saved runs to keep them clean.
-- `_work/` (the cloned + built gem5/NVMain) is git-ignored — it's regenerated by
+- `_work/` (the cloned + built gem5/NVMain) is git-ignored — regenerated by
   `scripts/setup.sh`, not committed.
 - Overlay files under `gem5/` keep their original gem5 BSD copyright headers.
-- The **Bonus** (a PCM-energy-reducing, writeback-aware LLC policy) is included
-  and reproducible — its code is in the overlay and its results in `data/Bonus/`.
+- The **Bonus** (writeback-aware LLC policy) is included and reproducible —
+  code in the overlay, results in `data/Bonus/`.
