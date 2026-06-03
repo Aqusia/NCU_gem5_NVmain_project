@@ -29,9 +29,11 @@ run quicksort --l3 --repl FBR --save Q4/FBR
 # Q5 — multiply, write-back vs write-through (4-way L3 on PCM)
 run multiply --l3 --assoc 4      --save Q5/writeback
 run multiply --l3 --assoc 4 --wt --save Q5/writethrough
-# Bonus — quicksort, writeback-aware (clean-preferring) LLC policy vs LRU
-run quicksort --l3 --repl LRU --save Bonus/LRU_baseline
-run quicksort --l3 --repl WBA --save Bonus/modified
+# Bonus — writeback-aware (clean-preferring) LLC policy vs LRU, on both benchmarks
+run quicksort --l3 --repl LRU --save Bonus/quicksort/LRU_baseline
+run quicksort --l3 --repl WBA --save Bonus/quicksort/WBA_modified
+run multiply  --l3 --repl LRU --save Bonus/multiply/LRU_baseline
+run multiply  --l3 --repl WBA --save Bonus/multiply/WBA_modified
 
 echo
 echo "All done. Results are under $HERE/data/"

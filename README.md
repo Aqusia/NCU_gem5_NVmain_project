@@ -152,8 +152,10 @@ gem5sim quicksort --l3 --repl LRU --save Q4/LRU      # Q4 baseline
 gem5sim quicksort --l3 --repl FBR --save Q4/FBR      # Q4 frequency-based + aging
 gem5sim multiply --l3 --assoc 4      --save Q5/writeback    # Q5 write-back
 gem5sim multiply --l3 --assoc 4 --wt --save Q5/writethrough # Q5 write-through
-gem5sim quicksort --l3 --repl LRU --save Bonus/LRU_baseline # Bonus baseline
-gem5sim quicksort --l3 --repl WBA --save Bonus/modified     # Bonus writeback-aware
+gem5sim quicksort --l3 --repl LRU --save Bonus/quicksort/LRU_baseline   # Bonus baseline
+gem5sim quicksort --l3 --repl WBA --save Bonus/quicksort/WBA_modified   # Bonus WBA
+gem5sim multiply  --l3 --repl LRU --save Bonus/multiply/LRU_baseline    # Bonus baseline
+gem5sim multiply  --l3 --repl WBA --save Bonus/multiply/WBA_modified    # Bonus WBA
 ```
 
 ### Path overrides (env vars)
