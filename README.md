@@ -225,6 +225,16 @@ and evictions** — that is what makes the Q3/Q4 experiments meaningful.
   flag and never triggers saving.
 - **NVMain energy numbers missing from `stats.txt`:** they only appear in the
   terminal log. That's why every run keeps both `output.log` and `stats.txt`.
+- **`podman exec` → `error getting current working directory`:** happens when
+  your shell's cwd is outside the container's mount points (e.g. you're sitting
+  in a directory the container can't see). Fix: `cd` to any valid path first:
+  ```bash
+  cd ~ && podman exec -it -w /root/work/answer cofinal bash
+  ```
+- **`source scripts/env.sh` → `No such file or directory`:** same cause — you're
+  on the host in a directory outside the container mount. Either enter the
+  container first (see above), or `cd` to the repo root on a mounted path before
+  sourcing.
 
 ---
 
