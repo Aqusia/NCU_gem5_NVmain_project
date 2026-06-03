@@ -68,26 +68,42 @@ Works the same with Docker (swap `podman` → `docker`).
 # 1. Build the toolchain image (fast — just installs compilers/SCons/Python 2.7)
 podman build -t cofinal .
 
-# 2. Start a shell with this repo mounted at /work
-podman run -it --rm -v "$PWD":/work -w /work cofinal bash
+# 2. Start a long-running container with this repo mounted at /root/COFINAL
+#    (run once; use `podman exec` afterwards to re-enter)
+podman run -d --name cofinal \
+  -v "$PWD":/root/COFINAL \
+  -v /path/to/gem5:/root/gem5 \
+  -v /path/to/NVmain:/root/NVmain \
+  cofinal sleep infinity
+
+# 3. Enter the container
+#    Note: if your shell's cwd is outside the container mounts, cd ~ first:
+cd ~ && podman exec -it -w /root/COFINAL cofinal bash
 
 # --- inside the container ---------------------------------------------------
-# 3. One-time: clone gem5@commit + NVMain, apply the overlay, build gem5.
+# 4. One-time: clone gem5@commit + NVMain, apply the overlay, build gem5.
 #    The gem5 compile takes ~30-90 min the first time. Output goes to ./_work,
 #    which is on the host mount, so it persists and is reused next time.
 scripts/setup.sh
 
-# 4. Point the wrapper at the freshly built tree
+# 5. Point the wrapper at the freshly built tree
 source scripts/env.sh
 
-# 5. Reproduce everything, or run a single question
+# 6. Reproduce everything, or run a single question
 scripts/run_all.sh
 gem5sim quicksort --l3 --assoc 2 --save Q3/2way
 # ----------------------------------------------------------------------------
 ```
 
-`-v "$PWD":/work` mounts the repo into the container, so `_work/` (the built
-gem5) and any new `data/` results land back on your host automatically.
+`-v "$PWD":/root/COFINAL` mounts the repo into the container, so `_work/` (the
+built gem5) and any new `data/` results land back on your host automatically.
+
+> **Re-entering the container** after it's already running:
+> ```bash
+> cd ~ && podman exec -it -w /root/COFINAL cofinal bash
+> ```
+> The `cd ~` avoids the `error getting current working directory` error that
+> occurs when your shell's cwd is a path the container can't see.
 
 > Fully-baked image (optional): if you'd rather have gem5 pre-compiled *inside*
 > the image instead of via `setup.sh`, add `COPY . /work`, `RUN /work/scripts/setup.sh`
