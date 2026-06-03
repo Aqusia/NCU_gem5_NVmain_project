@@ -14,8 +14,10 @@ in [../gem5/README.md](../gem5/README.md).
 - `Q4/FBR/`: quicksort with FBR (frequency-based + aging) replacement.
 - `Q5/writeback/`: multiply with write-back cache policy.
 - `Q5/writethrough/`: multiply with write-through cache policy.
-- `Bonus/LRU_baseline/`: quicksort with plain LRU (bonus baseline).
-- `Bonus/modified/`: quicksort with the writeback-aware (WBA) policy.
+- `Bonus/quicksort/LRU_baseline/`: quicksort with plain LRU (bonus baseline).
+- `Bonus/quicksort/WBA_modified/`: quicksort with the writeback-aware (WBA) policy.
+- `Bonus/multiply/LRU_baseline/`: multiply with plain LRU (bonus baseline).
+- `Bonus/multiply/WBA_modified/`: multiply with the writeback-aware (WBA) policy.
 - `benchmarks/`: `quicksort.c` and `multiply.c` (auto-compiled by `gem5sim`).
 
 Every result directory contains only:
@@ -55,6 +57,10 @@ gem5sim quicksort --l3 --repl LRU --save Q4/LRU
 gem5sim quicksort --l3 --repl FBR --save Q4/FBR
 gem5sim multiply --l3 --assoc 4      --save Q5/writeback
 gem5sim multiply --l3 --assoc 4 --wt --save Q5/writethrough
+gem5sim quicksort --l3 --repl LRU --save Bonus/quicksort/LRU_baseline
+gem5sim quicksort --l3 --repl WBA --save Bonus/quicksort/WBA_modified
+gem5sim multiply  --l3 --repl LRU --save Bonus/multiply/LRU_baseline
+gem5sim multiply  --l3 --repl WBA --save Bonus/multiply/WBA_modified
 ```
 
 `gem5sim` auto-detects paths from `env.sh`; override `GEM5_DIR`, `NVMAIN_CONFIG`,
@@ -159,25 +165,44 @@ every candidate is dirty does it fall back to plain LRU. Dirty lines therefore
 stay cached longer, writes coalesce, and the number of PCM writes drops. The
 implementation is described in [../gem5/README.md](../gem5/README.md).
 
-How it was run: quicksort on the default 256kB / 16-way L3, switching only the
+Both benchmarks are run on the default 256kB / 16-way L3, switching only the
 replacement policy (`--repl LRU` vs `--repl WBA`).
 
-| metric | LRU baseline | WBA (modified) | change |
+**quicksort** (working set ~400 kB, exercises L3 replacement):
+
+| metric | LRU baseline | WBA_modified | change |
 |---|---:|---:|---:|
-| `system.l3.overall_miss_rate::total` | 0.691684 | 0.369269 | −46.6% |
+| `system.l3.overall_miss_rate::total` | 0.691723 | 0.369348 | −46.6% |
 | `system.l3.overall_hits::total` | 7341 | 15036 | +7695 |
 | `system.mem_ctrls.num_writes::total` | 11947 | 2200 | **−81.6%** |
-| `system.mem_ctrls.bytes_written::total` | 764608 | 140800 | −81.6% |
-| `system.cpu.numCycles` | 184496846 | 178002756 | −3.5% |
-| NVMain energy (rank0 `totalEnergy`) | 2.10685e6 nJ | 1.68465e6 nJ | **−20.0%** |
+| `system.l3.writebacks::total` | 11947 | 2200 | −81.6% |
+| `system.cpu.numCycles` | 184,497,816 | 178,003,726 | −3.5% |
+| NVMain energy (`rank0.totalEnergy`) | 2.10686e+06 nJ | 1.68466e+06 nJ | **−20.1%** |
 
-WBA cuts PCM write requests by ~82% and rank energy by ~20% on this quicksort
-run. (The baseline matches the Q4 LRU numbers — it is the same quicksort+LRU
-configuration, included here as the bonus's own reference point.)
+**multiply** (300×300 matrix multiply, heavier write traffic):
+
+| metric | LRU baseline | WBA_modified | change |
+|---|---:|---:|---:|
+| `system.l3.overall_miss_rate::total` | 0.999503 | 0.547243 | −45.3% |
+| `system.l3.overall_hits::total` | 851 | 774,994 | +774,143 |
+| `system.mem_ctrls.num_writes::total` | 16998 | 12604 | **−25.8%** |
+| `system.l3.writebacks::total` | 16998 | 12604 | −25.8% |
+| `system.cpu.numCycles` | 5,107,828,180 | 4,568,652,340 | −10.5% |
+| NVMain energy (`rank0.totalEnergy`) | 4.69125e+07 nJ | 4.17648e+07 nJ | **−11.0%** |
+
+On quicksort, WBA nearly eliminates write-backs (−82%) because the clean-first
+eviction policy keeps dirty lines in cache longer and the relatively small
+working set allows many clean blocks to absorb most evictions. On multiply, the
+L3 miss rate starts near 100% under LRU (the huge streaming access pattern
+thrashes LRU entirely), and WBA's preference for clean victims cuts it to ~55%
+by retaining dirty lines that are likely to be written again soon — a ~25%
+reduction in PCM writes and ~11% energy saving.
 
 Reproduce:
 
 ```bash
-gem5sim quicksort --l3 --repl LRU --save Bonus/LRU_baseline
-gem5sim quicksort --l3 --repl WBA --save Bonus/modified
+gem5sim quicksort --l3 --repl LRU --save Bonus/quicksort/LRU_baseline
+gem5sim quicksort --l3 --repl WBA --save Bonus/quicksort/WBA_modified
+gem5sim multiply  --l3 --repl LRU --save Bonus/multiply/LRU_baseline
+gem5sim multiply  --l3 --repl WBA --save Bonus/multiply/WBA_modified
 ```

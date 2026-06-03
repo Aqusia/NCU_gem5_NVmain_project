@@ -67,6 +67,7 @@ find_work_dir() {
         # file from the full tree so the packaged wrapper keeps walking up to
         # the project root when invoked from answer/scripts.
         if [[ -f "$dir/gem5/configs/example/se.py" ]] ||
+           [[ -d "$dir/_work/gem5" ]] ||
            [[ -f "$dir/quicksort.c" ]] ||
            [[ -f "$dir/multiply.c" ]]; then
             printf '%s\n' "$dir"
@@ -79,12 +80,19 @@ find_work_dir() {
 
 # === Defaults (override via env) ===
 : "${WORK_DIR:=$(find_work_dir)}"
-if [[ -d "$WORK_DIR/gem5" ]]; then
+# Prefer the tree setup.sh builds under _work/. Fall back to a sibling full
+# gem5 tree (needs a build/ dir), then the container's /root/gem5. The repo's
+# own gem5/ is only a source overlay (no build/), so it must NOT be chosen.
+if [[ -d "$WORK_DIR/_work/gem5/build" ]]; then
+    DEFAULT_GEM5_DIR="$WORK_DIR/_work/gem5"
+elif [[ -d "$WORK_DIR/gem5/build" ]]; then
     DEFAULT_GEM5_DIR="$WORK_DIR/gem5"
 else
     DEFAULT_GEM5_DIR="/root/gem5"
 fi
-if [[ -f "$WORK_DIR/NVmain/Config/PCM_ISSCC_2012_4GB.config" ]]; then
+if [[ -f "$WORK_DIR/_work/NVmain/Config/PCM_ISSCC_2012_4GB.config" ]]; then
+    DEFAULT_NVMAIN_CONFIG="$WORK_DIR/_work/NVmain/Config/PCM_ISSCC_2012_4GB.config"
+elif [[ -f "$WORK_DIR/NVmain/Config/PCM_ISSCC_2012_4GB.config" ]]; then
     DEFAULT_NVMAIN_CONFIG="$WORK_DIR/NVmain/Config/PCM_ISSCC_2012_4GB.config"
 else
     DEFAULT_NVMAIN_CONFIG="/root/NVmain/Config/PCM_ISSCC_2012_4GB.config"
