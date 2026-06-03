@@ -63,13 +63,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 find_work_dir() {
     local dir="$SCRIPT_DIR"
     while [[ "$dir" != "/" ]]; do
-        # answer/gem5 is a source overlay, not a complete gem5 tree. Require a
-        # file from the full tree so the packaged wrapper keeps walking up to
-        # the project root when invoked from answer/scripts.
-        if [[ -f "$dir/gem5/configs/example/se.py" ]] ||
-           [[ -d "$dir/_work/gem5" ]] ||
-           [[ -f "$dir/quicksort.c" ]] ||
-           [[ -f "$dir/multiply.c" ]]; then
+        # The repo root always has setup.sh (and run_all.sh). Use that as the
+        # anchor so the walker doesn't overshoot into a parent workspace that
+        # happens to contain a full gem5 tree.
+        if [[ -f "$dir/setup.sh" ]]; then
             printf '%s\n' "$dir"
             return
         fi
