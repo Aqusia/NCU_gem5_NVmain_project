@@ -61,16 +61,28 @@ podman build -t cofinal .
 This installs the Ubuntu 18.04 toolchain (Python 2.7, SCons, g++, etc.).
 Takes ~1–2 minutes. Only needs to be done once.
 
+> **Note:** If `apt-get update` fails with 404 errors for `old-releases.ubuntu.com`,
+> the Ubuntu 18.04 mirror may be temporarily unavailable. Retry after a few minutes,
+> or check that your network can reach `old-releases.ubuntu.com`. If the image was
+> already built on this machine (check with `podman images`), skip this step entirely.
+
 ### Step 3 — Start the container
 
 ```bash
+# Linux / macOS
 podman run -d --name cofinal \
-  -v "$PWD":/root/COFINAL \
+  -v "$PWD":/root/COFINAL:z \
   cofinal sleep infinity
+
+# Windows (PowerShell) — use full path and root connection
+podman --connection podman-machine-default-root run -d --name cofinal \
+  -v "D:/path/to/NCU_gem5_NVmain_project:/root/COFINAL:z" \
+  localhost/cofinal sleep infinity
 ```
 
-`-v "$PWD":/root/COFINAL` mounts the repo into the container so `_work/`
+`-v …:/root/COFINAL:z` mounts the repo into the container so `_work/`
 (the built gem5) and `data/` results land back on your host automatically.
+The `:z` label is required on SELinux systems (Fedora, RHEL, etc.).
 
 ### Step 4 — Enter the container
 
@@ -79,7 +91,11 @@ podman run -d --name cofinal \
 > cwd is a path the container can't see).
 
 ```bash
+# Linux / macOS
 cd ~ && podman exec -it -w /root/COFINAL cofinal bash
+
+# Windows (PowerShell)
+podman --connection podman-machine-default-root exec -it -w /root/COFINAL cofinal bash
 ```
 
 ### Step 5 — Fix PATH (one-time, inside container)
@@ -125,9 +141,14 @@ scripts/run_all.sh
 The container keeps running in the background. To come back:
 
 ```bash
+# Linux / macOS
 cd ~ && podman exec -it -w /root/COFINAL cofinal bash
-# PATH is already set from ~/.bashrc — gem5sim works immediately
+
+# Windows (PowerShell)
+podman --connection podman-machine-default-root exec -it -w /root/COFINAL cofinal bash
 ```
+
+PATH is already set from `~/.bashrc` — `gem5sim` works immediately.
 
 ---
 
@@ -216,6 +237,13 @@ and evictions** — that is what makes the Q3/Q4 experiments meaningful.
 ---
 
 ## Troubleshooting
+
+- **Scripts fail with `$'\r': command not found` (Windows clone):** the repo
+  was cloned on Windows, which adds CRLF line endings that Linux rejects.
+  Fix inside the container before running anything:
+  ```bash
+  sed -i 's/\r//' scripts/setup.sh scripts/run_all.sh scripts/gem5sim scripts/env.sh
+  ```
 
 - **`podman exec` → `error getting current working directory`:** your shell's
   cwd is outside the container mounts. Fix:

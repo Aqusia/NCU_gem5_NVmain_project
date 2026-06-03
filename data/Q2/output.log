@@ -1,14 +1,14 @@
 gem5 Simulator System.  http://gem5.org
 gem5 is copyrighted software; use the --copyright option for details.
 
-gem5 compiled Jun  2 2026 19:23:42
-gem5 started Jun  2 2026 19:25:56
-gem5 executing on a5301815f836, pid 10337
-command line: ./build/X86/gem5.opt -d /root/work/answer/data/Q2 configs/example/se.py -c tests/test-progs/hello/bin/x86/linux/hello --cpu-type=TimingSimpleCPU --caches --l2cache --l3cache --mem-type=NVMainMemory --nvmain-config=/root/work/NVmain/Config/PCM_ISSCC_2012_4GB.config
+gem5 compiled Jun  3 2026 09:39:24
+gem5 started Jun  3 2026 09:43:13
+gem5 executing on e34138625ac7, pid 5124
+command line: ./build/X86/gem5.opt -d /root/COFINAL/data/Q2 configs/example/se.py -c tests/test-progs/hello/bin/x86/linux/hello --cpu-type=TimingSimpleCPU --caches --l2cache --l3cache --mem-type=NVMainMemory --nvmain-config=/root/COFINAL/_work/NVmain/Config/PCM_ISSCC_2012_4GB.config
 
 info: Standard input is not a terminal, disabling listeners.
 Global frequency set at 1000000000000 ticks per second
-NVMainControl: Reading NVMain config file: /root/work/NVmain/Config/PCM_ISSCC_2012_4GB.config.
+NVMainControl: Reading NVMain config file: /root/COFINAL/_work/NVmain/Config/PCM_ISSCC_2012_4GB.config.
 warn: Sockets disabled, not accepting gdb connections
 NVMain: GlobalEventQueue: Added a memory subsystem running at 400MHz. My frequency is 2000MHz.
 Config: Warning: Key EIDD0 is not set. Using '85' as the default. Please configure this value if this is wrong.
